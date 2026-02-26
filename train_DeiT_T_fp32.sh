@@ -1,0 +1,32 @@
+SHNAME=$(basename "$0"  | awk -F . '{print $1}')
+echo $SHNAME
+DATE=$(date +%Y%m%d%H%M%S)
+LOG_DIR_NMAE=$SHNAME
+echo $LOG_DIR_NMAE
+cd ../exp
+mkdir $LOG_DIR_NMAE
+cd $LOG_DIR_NMAE
+mkdir $DATE
+cd ../../solution
+SAVE_DIR=../exp/$LOG_DIR_NMAE/$DATE
+echo $SAVE_DIR
+
+python fp_pretrained/main.py \
+--dist-url 'tcp://127.0.0.1:10001' \
+--dist-backend 'nccl' \
+--multiprocessing-distributed \
+--world-size 1 \
+--rank 0 \
+--model deit_tiny_patch16_224_quant \
+--batch-size 512 \
+--lr 5e-4 \
+--warmup-epochs 0 \
+--min-lr 0 \
+--wbits 4 \
+--abits 4 \
+--reg \
+--softlabel_path ./FKD_soft_label_500_crops_marginal_smoothing_k_5 \
+--finetune [path to full precision baseline model] \
+--save_checkpoint_path ./DeiT-T-4bit \
+--log ./log/DeiT-T-4bit.log\
+--data [imagenet-folder with train and val folders]

@@ -27,10 +27,10 @@ import warnings
 from functools import partial
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from timm.models.helpers import load_pretrained
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from timm.models import load_pretrained
+from timm.layers import DropPath, to_2tuple, trunc_normal_
 from timm.models.resnet import resnet26d, resnet50d
-from timm.models.registry import register_model
+from timm.models import register_model
 from torch.nn.modules.activation import ReLU
 from .lsq_layer import  QuantLinear, QuantAct, QuantConv2d, QuantMultiHeadAct, QuantMuitiHeadLinear, QuantMuitiHeadLinear_in, bit_pass
 #from .dynamic_scale_layer import  QuantLinear, QuantAct, QuantConv2d, QuantMultiHeadAct, QuantMuitiHeadLinear, QuantMuitiHeadLinear_in, bit_pass
@@ -364,7 +364,7 @@ def _conv_filter(state_dict, patch_size=16):
     return out_dict
 
 @register_model
-def deit_tiny_patch16_224_quant(pretrained=False, **kwargs):
+def deit_tiny_patch16_224_quant(pretrained=False, pretrained_cfg=None, pretrained_cfg_overlay=None, cache_dir=None, **kwargs):
     model = QuantVisionTransformer(
         patch_size=16, embed_dim=192, depth=12, num_heads=3, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)

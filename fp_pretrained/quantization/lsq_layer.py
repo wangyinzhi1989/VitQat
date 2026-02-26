@@ -181,7 +181,7 @@ class QuantAct(_ActQ):
     def __init__(self, nbits=-1, signed=True, offset=False, dim=1, learned=True, mixpre=True, **kwargs):
         super(QuantAct, self).__init__(nbits=nbits, signed=signed, offset=offset, dim=dim, learned=learned, mixpre=mixpre)
         self.act_samples = np.zeros(1)
-        print('Using regular quant')
+        # print('Using regular quant')
 
     def initialize_scale_offset(self, device):
         # if self.signed:
@@ -434,7 +434,7 @@ def quantize_by_mse(tensor, p_alpha, signed=True):
             if not math.isfinite(alpha):
                 raise ValueError("alpha is infinite!")
             step += 1
-        print(f"scale initial value for {n}-bit: {alpha}, iter steps: {step}")
+        # print(f"scale initial value for {n}-bit: {alpha}, iter steps: {step}")
         p_alpha.data[n-2].copy_(alpha)
 
 def quantize_by_mse_with_offset(tensor, p_alpha, p_beta, signed=True):
@@ -465,6 +465,6 @@ def quantize_by_mse_with_offset(tensor, p_alpha, p_beta, signed=True):
             if not math.isfinite(alpha):
                 raise ValueError("alpha is infinite!")
             step += 1
-        print(f"scale initial value for {n}-bit: alpha:{alpha}, beta:{beta}, iter steps: {step}")
+        # print(f"scale initial value for {n}-bit: alpha:{alpha}, beta:{beta}, iter steps: {step}")
         p_alpha.data[n-2].copy_(alpha)
         p_beta.data[n-2].copy_(beta)

@@ -14,6 +14,21 @@ import torch
 import torch.distributed as dist
 
 
+def find_free_port():
+    """
+    Find an available port of current machine / node.
+    """
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Binding to port 0 will cause the OS to find an available port for us
+    sock.bind(("", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    # NOTE: there is still a chance the port could be taken by other processes.
+    return str(port)
+
+
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
     window or the global series average.
@@ -226,12 +241,9 @@ def init_distributed_mode(args):
         return
 
     args.distributed = True
+    print(f'args.rank: {args.rank}, args.world_size: {args.world_size}, args.gpu: {args.gpu}')
 
     torch.cuda.set_device(args.gpu)
-    args.dist_backend = 'nccl'
-    print('| distributed init (rank {}): {}'.format(
-        args.rank, args.dist_url), flush=True)
-    torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                         world_size=args.world_size, rank=args.rank)
+    torch.distributed.init_process_group(backend='nccl', world_size=args.world_size, rank=args.rank)
     torch.distributed.barrier()
     setup_for_distributed(args.rank == 0)

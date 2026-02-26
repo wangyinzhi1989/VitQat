@@ -16,9 +16,9 @@ from torch import nn
 import math
 
 from functools import partial
-from timm.models.layers import trunc_normal_
-from timm.models.layers import DropPath, to_2tuple, lecun_normal_
-from timm.models.registry import register_model
+from timm.layers import trunc_normal_
+from timm.layers import DropPath, to_2tuple, lecun_normal_
+from timm.models import register_model
 
 
 __all__ = [

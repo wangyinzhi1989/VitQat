@@ -16,9 +16,9 @@ from torch import nn
 import math
 
 from functools import partial
-from timm.models.layers import trunc_normal_
-from timm.models.layers import DropPath, to_2tuple
-from timm.models.registry import register_model
+from timm.layers import trunc_normal_
+from timm.layers import DropPath, to_2tuple
+from timm.models import register_model
 
 from .lsq_layer import  QuantLinear, QuantAct, QuantConv2d, QuantMultiHeadAct, QuantMuitiHeadLinear, QuantMuitiHeadLinear_in, bit_pass
 from .binary_layer import BinaryActivation, BinaryLinear
