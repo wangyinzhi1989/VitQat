@@ -21,9 +21,9 @@ python train_VVTQ.py \
 --min-lr 0 \
 --wbits 4 \
 --abits 4 \
+--workers 4 \
 --reg \
 --softlabel_path /data/wangyinzhi/FKD_soft_label_500_crops_marginal_smoothing_k_5/imagenet \
 --finetune /data4022/wangyinzhi/quantization/Quantization_variation_pre_ckpt/deit_tiny_fp/deit_tiny_fp/ckpt/current_checkpoint.pth \
 --save_checkpoint_path $SAVE_DIR \
---log $SAVE_DIR/run.log \
 --data /datassd/Inet1K

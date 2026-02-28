@@ -11,7 +11,7 @@ from quantization.lsq_layer import QuantAct, QuantConv2d, QuantLinear, QuantMult
 
 
 @torch.no_grad()
-def initialize_quantization(data_loader, model, device, output_dir, sample_iters=5):
+def initialize_quantization(data_loader, model, device, output_dir, sample_iters=5, logger=None):
 
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Initialization:'
@@ -20,7 +20,7 @@ def initialize_quantization(data_loader, model, device, output_dir, sample_iters
             f.write("weight scales:\n")
             for name, m in model.named_modules():
                 if (isinstance(m, QuantLinear) or isinstance(m, QuantConv2d) or isinstance(m, QuantMuitiHeadLinear) or isinstance(m, QuantMuitiHeadLinear_in)) and m.alpha is not None:
-                    print(f"initialize the weight scale for module {name}")
+                    if logger is not None: logger.debug(f"initialize the weight scale for module {name}")
                     m.initialize_scale(device)
                     f.write(name + ': ' + str(m.alpha.data) + '\n')
 

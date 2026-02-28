@@ -12,6 +12,25 @@ import datetime
 
 import torch
 import torch.distributed as dist
+import logging
+import sys
+
+
+def get_logger(save_dir, file_name="run.log", name='exp'):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s", datefmt='%Y-%m-%d %H:%M:%S')
+
+    file_path = os.path.join(save_dir, file_name)
+    file_hdlr = logging.FileHandler(file_path)
+    file_hdlr.setFormatter(formatter)
+
+    strm_hdlr = logging.StreamHandler(sys.stdout)
+    strm_hdlr.setFormatter(formatter)
+
+    logger.addHandler(file_hdlr)
+    logger.addHandler(strm_hdlr)
+    return logger
 
 
 def find_free_port():

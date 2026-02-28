@@ -6,8 +6,8 @@ def get_args_parser():
     parser.add_argument('--data', metavar='DIR', default='../dataset/imagenet',
                         help='path to dataset')
     parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50')
-    parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
-                        help='number of data loading workers (default: 24)')
+    parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
+                        help='number of data loading workers (default: 8) for one node')
     parser.add_argument('--epochs', default=150, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('--gpu', type=int, nargs="+", help='0 to set a single GPU, [0, 1, 2] to set different GPUs')

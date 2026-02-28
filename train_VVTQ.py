@@ -5,7 +5,6 @@ import shutil
 import time
 import math
 import warnings
-import logging
 import numpy as np
 import sys
 
@@ -40,6 +39,7 @@ from utils import *
 import torch.utils.tensorboard as tensorboard
 from pathlib import Path
 from train_option import get_args_parser
+import pickle
 
 # timm is used to build the optimizer and learning rate scheduler (https://github.com/rwightman/pytorch-image-models)
 
@@ -80,15 +80,16 @@ def main_worker(gpu, ngpus_per_node, args):
     output_dir = Path(args.save_checkpoint_path)
 
     tb_writer = None
-    if args.rank == 0:
-        logging.basicConfig(filename=args.log, format='%(asctime)s %(message)s',level=logging.INFO)
-        logging.info(args)
+    logger = None
+    if args.rank == 0:        
+        logger = get_logger(args.save_checkpoint_path, name='train')
+        logger.info(args)
         tb_writer = tensorboard.SummaryWriter(log_dir=args.save_checkpoint_path)
 
     if args.distributed:
         dist.init_process_group("nccl", world_size=args.world_size, rank=args.rank)
     # create model
-    if args.rank == 0: logging.info(f"Creating model: {args.model}")
+    if args.rank == 0: logger.info(f"Creating model: {args.model}")
     model = create_model(
         args.model,
         pretrained=False,
@@ -110,13 +111,13 @@ def main_worker(gpu, ngpus_per_node, args):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.finetune, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.finetune, map_location='cpu')
+            checkpoint = torch.load(args.finetune, map_location='cpu', weights_only=False, pickle_module=pickle)
 
         checkpoint_model = checkpoint['model']
         model.load_state_dict(checkpoint_model, strict=False)
 
     if not torch.cuda.is_available():
-        logging.info('using CPU, this will be slow')
+        if args.rank == 0: logger.info('using CPU, this will be slow')
     elif args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
         # should always set the single device scope, otherwise,
@@ -127,7 +128,9 @@ def main_worker(gpu, ngpus_per_node, args):
         # DistributedDataParallel, we need to divide the batch size
         # ourselves based on the total number of GPUs we have
         args.batch_size = int(args.batch_size / ngpus_per_node)
-        args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
+        # args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
+        if args.rank == 0:
+            logger.info(f"update batch_size: {args.batch_size}")
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.rank])
 
         # if args.gpu is not None:
@@ -166,13 +169,13 @@ def main_worker(gpu, ngpus_per_node, args):
     # optionally resume from a checkpointresume
     if args.resume:
         if os.path.isfile(args.resume):
-            logging.info("=> loading checkpoint '{}'".format(args.resume))
+            logger.info("=> loading checkpoint '{}'".format(args.resume))
             if args.rank is None:
-                checkpoint = torch.load(args.resume)
+                checkpoint = torch.load(args.resume, weights_only=False, pickle_module=pickle)
             else:
                 # Map model to be loaded to specified single gpu.
                 loc = 'cuda:{}'.format(args.rank)
-                checkpoint = torch.load(args.resume, map_location=loc)
+                checkpoint = torch.load(args.resume, map_location=loc, weights_only=False, pickle_module=pickle)
             args.start_epoch = checkpoint['epoch']
             best_acc1 = checkpoint['best_acc1']
             if args.rank is not None:
@@ -180,10 +183,10 @@ def main_worker(gpu, ngpus_per_node, args):
                 best_acc1 = best_acc1.to(args.rank)
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            logging.info("=> loaded checkpoint '{}' (epoch {})"
+            logger.info("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
-            logging.info("=> no checkpoint found at '{}'".format(args.resume))
+            logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
 
@@ -253,15 +256,20 @@ def main_worker(gpu, ngpus_per_node, args):
     # 为避免过度打印，在每个epoch中最多打印10次
     train_loader_len = len(train_loader)
     args.print_freq = train_loader_len // 10 if train_loader_len // 10 > 0 else args.print_freq
-    if args.rank == 0:
-        logging.info(f"train_loader_len: {train_loader_len}, print_freq: {args.print_freq}")
+    if args.rank == 0: logger.info(f"train_loader_len: {train_loader_len}, print_freq: {args.print_freq}")
+
+    # # TODO 先eval下fp模型
+    # if not args.resume:
+    #     if args.rank == 0: logger.info("Starting evaluation of FP model..")
+    #     validate(val_loader, model, criterion_ce, args, 0, tb_writer, logger=logger)
+    #     if args.rank == 0: logger.info("end evaluation of FP model")
 
     if args.resume == '' and (args.abits > 0 or args.wbits > 0):
-        logging.info("Starting quantization scale initialization")
-        initialize_quantization(data_loader_sampler, model, device, output_dir, sample_iters=1)
+        if args.rank == 0: logger.info("Starting quantization scale initialization")
+        initialize_quantization(data_loader_sampler, model, device, output_dir, sample_iters=5, logger=logger)
 
     if args.evaluate:
-        validate(val_loader, model, criterion_ce, 0, args)
+        validate(val_loader, model, criterion_ce, args, 0, tb_writer, logger=logger)
         return
 
     # warmup with single crop, "=" is used to let start_epoch to be 0 for the corner case.
@@ -270,11 +278,11 @@ def main_worker(gpu, ngpus_per_node, args):
             if args.distributed:
                 train_sampler.set_epoch(epoch)
             # train for one epoch
-            train(train_loader_single_crop, model, criterion_sce, optimizer, epoch, args, tb_writer)
+            train(train_loader_single_crop, model, criterion_sce, optimizer, epoch, args, tb_writer, logger=logger)
             lr_scheduler.step(epoch + 1)
 
             # evaluate on validation set
-            acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer)
+            acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer, logger=logger)
 
             # remember best acc@1 and save checkpoint
             is_best = acc1 > best_acc1
@@ -304,10 +312,10 @@ def main_worker(gpu, ngpus_per_node, args):
                     train_sampler.set_epoch(epoch)
                 lr_scheduler.step(epoch+1)
                 # train for one epoch
-                train(train_loader_single_crop, model, criterion_sce, optimizer, epoch, args, tb_writer)
+                train(train_loader_single_crop, model, criterion_sce, optimizer, epoch, args, tb_writer, logger=logger)
 
                 # evaluate on validation set
-                acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer)
+                acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer, logger=logger)
 
                 # remember best acc@1 and save checkpoint
                 is_best = acc1 > best_acc1
@@ -324,11 +332,11 @@ def main_worker(gpu, ngpus_per_node, args):
             return 
         else:
             # train for one epoch
-            train(train_loader, model, criterion_sce, optimizer, epoch, args, tb_writer)
+            train(train_loader, model, criterion_sce, optimizer, epoch, args, tb_writer, logger=logger)
         lr_scheduler.step(epoch+args.num_crops)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer)
+        acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer, logger=logger)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -344,26 +352,26 @@ def main_worker(gpu, ngpus_per_node, args):
             }, is_best, filename=args.save_checkpoint_path+'/checkpoint.pth.tar')
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args, tb_writer):
-    batch_time = AverageMeter('Time', ':6.3f')
-    data_time = AverageMeter('Data', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
+def train(train_loader, model, criterion, optimizer, epoch, args, tb_writer, logger=None):
+    batch_time = AverageMeter('Time', ':.3f')
+    data_time = AverageMeter('Data', ':.3f')
+    losses = AverageMeter('Loss', ':.4f')
+    top1 = AverageMeter('Acc@1', ':.2f')
+    top5 = AverageMeter('Acc@5', ':.2f')
     if args.reg:
         annealing_schedule = CosineTempDecay(t_max=args.epochs, temp_range=(0, 0.01), rel_decay_start=0.0)
         annealing_schedule_reg = annealing_schedule(epoch)
 
-        oscreg = AverageMeter('regLoss', ':.4e')
+        oscreg = AverageMeter('regLoss', ':.4f')
         progress = ProgressMeter(
             len(train_loader),
             [batch_time, data_time, oscreg, losses, top1, top5, 'LR {lr:.5f}'.format(lr=_get_learning_rate(optimizer)), 'regloss_s {reg:.5f}'.format(reg=annealing_schedule_reg)],
-            prefix="Epoch: [{}]".format(epoch))
+            prefix="Epoch: [{}]".format(epoch), logger=logger)
     else:
         progress = ProgressMeter(
             len(train_loader),
             [batch_time, data_time, losses, top1, top5, 'LR {lr:.5f}'.format(lr=_get_learning_rate(optimizer))],
-            prefix="Epoch: [{}]".format(epoch))
+            prefix="Epoch: [{}]".format(epoch), logger=logger)
 
     # switch to train mode
     model.train()
@@ -424,15 +432,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args, tb_writer):
         tb_writer.add_scalar('train/lr', _get_learning_rate(optimizer), epoch)
 
 
-def validate(val_loader, model, criterion, args, epoch, tb_writer):
-    batch_time = AverageMeter('Time', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
+def validate(val_loader, model, criterion, args, epoch, tb_writer, logger=None):
+    batch_time = AverageMeter('Time', ':.3f')
+    losses = AverageMeter('Loss', ':.4f')
+    top1 = AverageMeter('Acc@1', ':.2f')
+    top5 = AverageMeter('Acc@5', ':.2f')
     progress = ProgressMeter(
         len(val_loader),
         [batch_time, losses, top1, top5],
-        prefix='Test: ')
+        prefix='Test: ', logger=logger)
 
     # switch to evaluate mode
     model.eval()
@@ -463,10 +471,9 @@ def validate(val_loader, model, criterion, args, epoch, tb_writer):
                 progress.display(i)
 
         # TODO: this should also be done with the ProgressMeter
-        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
-              .format(top1=top1, top5=top5))
+        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'.format(top1=top1, top5=top5))
         if args.rank == 0:
-            logging.info(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'.format(top1=top1, top5=top5))
+            logger.info(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'.format(top1=top1, top5=top5))
             tb_writer.add_scalar('val/loss', losses.avg, epoch)
             tb_writer.add_scalar('val/acc1', top1.avg, epoch)
             tb_writer.add_scalar('val/acc5', top5.avg, epoch)
@@ -500,21 +507,24 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
     def __str__(self):
-        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        fmtstr = '{name}:{val' + self.fmt + '}({avg' + self.fmt + '})'
         return fmtstr.format(**self.__dict__)
 
 
 class ProgressMeter(object):
-    def __init__(self, num_batches, meters, prefix=""):
+    def __init__(self, num_batches, meters, prefix="", logger=None):
         self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
         self.meters = meters
         self.prefix = prefix
+        self.logger = logger
 
     def display(self, batch):
         entries = [self.prefix + self.batch_fmtstr.format(batch)]
         entries += [str(meter) for meter in self.meters]
-        print('\t'.join(entries))
-        logging.info('\t'.join(entries))
+        if self.logger is not None: 
+            self.logger.info(' '.join(entries))
+        else:
+            print(' '.join(entries))
 
     def _get_batch_fmtstr(self, num_batches):
         num_digits = len(str(num_batches // 1))
@@ -555,15 +565,11 @@ def accuracy(output, target, topk=(1,)):
 
 if __name__ == '__main__':
     args = get_args_parser()
-    print(args)
     
     # 设置 CUDA 可见设备
     os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, args.gpu))
     print("train devices={}".format(os.environ["CUDA_VISIBLE_DEVICES"]))
     args.world_size = len(args.gpu)
-
-    # # 创建工作目录
-    # os.makedirs(args.save_dir, exist_ok=True)
 
     # 设置分布式训练的主地址和端口
     os.environ['MASTER_ADDR'] = 'localhost'

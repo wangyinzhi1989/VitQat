@@ -11,6 +11,7 @@ from torch.nn.modules import loss
 from torchvision.transforms import InterpolationMode
 import random
 import numpy as np
+import pickle
 
 
 class Soft_CrossEntropy(loss._Loss):
@@ -102,7 +103,7 @@ class ImageFolder_FKD(torchvision.datasets.ImageFolder):
             label_path = os.path.join(self.softlabel_path, '/'.join(tar_sub_path))
             #print(f'label_path: {label_path}')
 
-            label = torch.load(label_path, map_location=torch.device('cpu'))
+            label = torch.load(label_path, map_location=torch.device('cpu'), weights_only=False, pickle_module=pickle)
 
             coords, flip_status, output = label
 
