@@ -284,6 +284,7 @@ class QuantAct(_ActQ):
 
         if self.init_state == 0:
             nbits = bit_pass(self.nbits)
+            # TODO 不用考虑unsigned的情况?
             Qp = 2 ** (nbits - 1) - 1
             self.alpha.data.copy_(2 * x.abs().mean() / math.sqrt(Qp))
             self.init_state.fill_(1)
@@ -304,6 +305,7 @@ class QuantAct(_ActQ):
             Qn = 0 * self.nbits
             Qp = 2 ** nbits - 1
         with torch.no_grad():
+            # TODO 论文中说明的是使用注释掉的g
             # g = 1.0 / math.sqrt(x.abs().sum() * Qp)
             g = 1.0 / math.sqrt(x.numel()) / Qp
         # g_o = 1.0 / math.sqrt(x.numel())

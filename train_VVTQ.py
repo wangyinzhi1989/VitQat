@@ -37,125 +37,18 @@ from quantization import DeiT_quant, SReT_quant, Swin_quant
 from engine import initialize_quantization
 from util_loss import BinReg, CosineTempDecay
 from utils import *
+import torch.utils.tensorboard as tensorboard
+from pathlib import Path
+from train_option import get_args_parser
 
 # timm is used to build the optimizer and learning rate scheduler (https://github.com/rwightman/pytorch-image-models)
 
-
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--data', metavar='DIR', default='../dataset/imagenet',
-                    help='path to dataset')
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50')
-parser.add_argument('-j', '--workers', default=16, type=int, metavar='N',
-                    help='number of data loading workers (default: 24)')
-parser.add_argument('--epochs', default=150, type=int, metavar='N',
-                    help='number of total epochs to run')
-parser.add_argument('--gpu', type=int, nargs="+", help='0 to set a single GPU, [0, 1, 2] to set different GPUs')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
-                    help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
-                    metavar='N',
-                    help='mini-batch size (default: 256), this is the total '
-                         'batch size of all GPUs on the current node when '
-                         'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.002, type=float,
-                    metavar='LR', help='initial learning rate', dest='lr')
-parser.add_argument('--schedule', default=[120, 160], nargs='*', type=int,
-                    help='learning rate schedule (when to drop lr by 10x)')
-parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
-                    help='momentum')
-parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
-                    metavar='W', help='weight decay (default: 1e-4)',
-                    dest='weight_decay')
-parser.add_argument('-p', '--print-freq', default=10, type=int,
-                    metavar='N', help='print frequency (default: 10)')
-parser.add_argument('--resume', default='', type=str, metavar='PATH',
-                    help='path to latest checkpoint (default: none)')
-parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
-                    help='evaluate model on validation set')
-parser.add_argument('--pretrained', dest='pretrained', action='store_true',
-                    help='use pre-trained model')
-parser.add_argument('--world-size', default=1, type=int,
-                    help='number of nodes for distributed training')
-parser.add_argument('--rank', default=-1, type=int,
-                    help='node rank for distributed training')
-parser.add_argument('--seed', default=None, type=int,
-                    help='seed for initializing training. ')
-parser.add_argument('--num_crops', default=4, type=int,
-                    help='number of crops in each image, 1 is the standard training')
-parser.add_argument('--softlabel_path', default='./FKD_soft_label_500_crops_marginal_smoothing_k_5', type=str, metavar='PATH',
-                    help='path to soft label files (default: none)')
-parser.add_argument('--save_checkpoint_path', default='./FKD_checkpoints_output', type=str, metavar='PATH',
-                    help='path to latest checkpoint (default: none)')
-parser.add_argument('--soft_label_type', default='marginal_smoothing_k5', type=str, metavar='TYPE',
-                    help='(1) ori; (2) hard; (3) smoothing; (4) marginal_smoothing_k5; (5) marginal_smoothing_k10; (6) marginal_renorm_k5')
-parser.add_argument('--num_classes', default=1000, type=int,
-                    help='number of classes.')
-parser.add_argument('--drop', type=float, default=0.0, metavar='PCT',
-                    help='Dropout rate (default: 0.)')
-parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
-                    help='Drop path rate (default: 0.1)')
-parser.add_argument('--log', default='log_examp.log', type=str,
-                    help='names of logging file.')
-
-# Optimizer parameters
-parser.add_argument('--opt', default='adamw', type=str, metavar='OPTIMIZER',
-                    help='Optimizer (default: "adamw"')
-parser.add_argument('--opt-eps', default=1e-8, type=float, metavar='EPSILON',
-                    help='Optimizer Epsilon (default: 1e-8)')
-parser.add_argument('--opt-betas', default=None, type=float, nargs='+', metavar='BETA',
-                    help='Optimizer Betas (default: None, use opt default)')
-parser.add_argument('--clip-grad', type=float, default=None, metavar='NORM',
-                    help='Clip gradient norm (default: None, no clipping)')
-
-# Learning rate schedule parameters
-parser.add_argument('--sched', default='cosine', type=str, metavar='SCHEDULER',
-                    help='LR scheduler (default: "cosine"')
-parser.add_argument('--lr-noise', type=float, nargs='+', default=None, metavar='pct, pct',
-                    help='learning rate noise on/off epoch percentages')
-parser.add_argument('--lr-noise-pct', type=float, default=0.67, metavar='PERCENT',
-                    help='learning rate noise limit percent (default: 0.67)')
-parser.add_argument('--lr-noise-std', type=float, default=1.0, metavar='STDDEV',
-                    help='learning rate noise std-dev (default: 1.0)')
-parser.add_argument('--warmup-lr', type=float, default=1e-6, metavar='LR',
-                    help='warmup learning rate (default: 1e-6)')
-parser.add_argument('--min-lr', type=float, default=1e-5, metavar='LR',
-                    help='lower lr bound for cyclic schedulers that hit 0 (1e-5)')
-parser.add_argument('--cos', action='store_true',
-                    help='use cosine lr schedule')
-parser.add_argument('--decay-epochs', type=float, default=30, metavar='N',
-                    help='epoch interval to decay LR')
-parser.add_argument('--warmup-epochs', type=int, default=5, metavar='N',
-                    help='epochs to warmup LR, if scheduler supports')
-parser.add_argument('--cooldown-epochs', type=int, default=10, metavar='N',
-                    help='epochs to cooldown LR at min_lr, after cyclic schedule ends')
-parser.add_argument('--patience-epochs', type=int, default=10, metavar='N',
-                    help='patience epochs for Plateau LR scheduler (default: 10')
-parser.add_argument('--decay-rate', '--dr', type=float, default=0.1, metavar='RATE',
-                    help='LR decay rate (default: 0.1)')
-
-# Vit parameters
-parser.add_argument('--model', default='deit_base_patch16_224_quant', type=str, metavar='MODEL',
-                        help='Name of model to train')
-parser.add_argument('--wbits', default=-1, type=int)
-parser.add_argument('--abits', default=-1, type=int)
-parser.add_argument('--act-unsigned', action='store_true', default=False, help='using unsigned activations')
-parser.add_argument('--use-offset', action='store_true', default=False, help='using offset')
-parser.add_argument('--act-layer', default='gelu', type=str)
-parser.add_argument('--fixed-scale', action='store_true', default=False, help='use fixed scale and offset')
-parser.add_argument('--mixpre', action='store_true', default=False, help='whether to learn the bit-width')
-parser.add_argument('--bitops-scaler', type=float, default=0.)
-parser.add_argument('--show-bit-state', action='store_true', default=False)
-parser.add_argument('--head-wise', action='store_true', default=False)
-parser.add_argument('--reg', action='store_true', default=False)
-parser.add_argument('--finetune', default='', help='finetune from checkpoint')
-
 best_acc1 = 0
 
-
 def main(args):
-    
     if not os.path.exists(args.save_checkpoint_path):
-        os.makedirs(args.save_checkpoint_path)
+        output_dir = Path(args.save_checkpoint_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     # convert to TRUE number of loading-images and #epochs since we use multiple crops from the same image within a minbatch
     args.batch_size = math.ceil(args.batch_size / args.num_crops)
@@ -184,10 +77,13 @@ def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.rank = int(gpu)
     print(f'args.rank: {args.rank}')
+    output_dir = Path(args.save_checkpoint_path)
 
+    tb_writer = None
     if args.rank == 0:
         logging.basicConfig(filename=args.log, format='%(asctime)s %(message)s',level=logging.INFO)
         logging.info(args)
+        tb_writer = tensorboard.SummaryWriter(log_dir=args.save_checkpoint_path)
 
     if args.distributed:
         dist.init_process_group("nccl", world_size=args.world_size, rank=args.rank)
@@ -353,16 +249,19 @@ def main_worker(gpu, ngpus_per_node, args):
         drop_last=False
     )
 
-    from pathlib import Path
-    output_dir = Path(args.save_checkpoint_path)
     device = torch.device('cuda')
+    # 为避免过度打印，在每个epoch中最多打印10次
+    train_loader_len = len(train_loader)
+    args.print_freq = train_loader_len // 10 if train_loader_len // 10 > 0 else args.print_freq
+    if args.rank == 0:
+        logging.info(f"train_loader_len: {train_loader_len}, print_freq: {args.print_freq}")
 
     if args.resume == '' and (args.abits > 0 or args.wbits > 0):
         logging.info("Starting quantization scale initialization")
         initialize_quantization(data_loader_sampler, model, device, output_dir, sample_iters=1)
 
     if args.evaluate:
-        validate(val_loader, model, criterion_ce, args)
+        validate(val_loader, model, criterion_ce, 0, args)
         return
 
     # warmup with single crop, "=" is used to let start_epoch to be 0 for the corner case.
@@ -371,11 +270,11 @@ def main_worker(gpu, ngpus_per_node, args):
             if args.distributed:
                 train_sampler.set_epoch(epoch)
             # train for one epoch
-            train(train_loader_single_crop, model, criterion_sce, optimizer, epoch, args)
+            train(train_loader_single_crop, model, criterion_sce, optimizer, epoch, args, tb_writer)
             lr_scheduler.step(epoch + 1)
 
             # evaluate on validation set
-            acc1 = validate(val_loader, model, criterion_ce, args)
+            acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer)
 
             # remember best acc@1 and save checkpoint
             is_best = acc1 > best_acc1
@@ -405,10 +304,10 @@ def main_worker(gpu, ngpus_per_node, args):
                     train_sampler.set_epoch(epoch)
                 lr_scheduler.step(epoch+1)
                 # train for one epoch
-                train(train_loader_single_crop, model, criterion_sce, optimizer, epoch, args)
+                train(train_loader_single_crop, model, criterion_sce, optimizer, epoch, args, tb_writer)
 
                 # evaluate on validation set
-                acc1 = validate(val_loader, model, criterion_ce, args)
+                acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer)
 
                 # remember best acc@1 and save checkpoint
                 is_best = acc1 > best_acc1
@@ -425,11 +324,11 @@ def main_worker(gpu, ngpus_per_node, args):
             return 
         else:
             # train for one epoch
-            train(train_loader, model, criterion_sce, optimizer, epoch, args)
+            train(train_loader, model, criterion_sce, optimizer, epoch, args, tb_writer)
         lr_scheduler.step(epoch+args.num_crops)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion_ce, args)
+        acc1 = validate(val_loader, model, criterion_ce, args, epoch, tb_writer)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -445,17 +344,20 @@ def main_worker(gpu, ngpus_per_node, args):
             }, is_best, filename=args.save_checkpoint_path+'/checkpoint.pth.tar')
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(train_loader, model, criterion, optimizer, epoch, args, tb_writer):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
     if args.reg:
+        annealing_schedule = CosineTempDecay(t_max=args.epochs, temp_range=(0, 0.01), rel_decay_start=0.0)
+        annealing_schedule_reg = annealing_schedule(epoch)
+
         oscreg = AverageMeter('regLoss', ':.4e')
         progress = ProgressMeter(
             len(train_loader),
-            [batch_time, data_time, oscreg, losses, top1, top5, 'LR {lr:.5f}'.format(lr=_get_learning_rate(optimizer))],
+            [batch_time, data_time, oscreg, losses, top1, top5, 'LR {lr:.5f}'.format(lr=_get_learning_rate(optimizer)), 'regloss_s {reg:.5f}'.format(reg=annealing_schedule_reg)],
             prefix="Epoch: [{}]".format(epoch))
     else:
         progress = ProgressMeter(
@@ -465,8 +367,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
     # switch to train mode
     model.train()
-
     end = time.time()
+    
     for i, (images, target, soft_label) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -496,9 +398,6 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         # add regularization
         if args.reg:
-            annealing_schedule = CosineTempDecay(t_max=args.epochs, temp_range=(0, 0.01), rel_decay_start=0.25)
-            annealing_schedule_reg = annealing_schedule(epoch)
-            logging.info("current annealing regularization weighting coefficient:{}".format(annealing_schedule_reg))
             bin_regularizer = BinReg(annealing_schedule_reg)
             loss_reg = bin_regularizer(model)
             loss += loss_reg
@@ -513,15 +412,19 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % args.print_freq == 0:
-            t = time.localtime()
-            current_time = time.strftime("%H:%M:%S", t)
-            #print(current_time)
-            if args.rank == 0:
-                progress.display(i)
+        if args.rank == 0 and i % args.print_freq == 0:
+            progress.display(i)
+    if args.rank == 0:
+        tb_writer.add_scalar('train/loss', losses.avg, epoch)
+        tb_writer.add_scalar('train/acc1', top1.avg, epoch)
+        tb_writer.add_scalar('train/acc5', top5.avg, epoch)
+        if args.reg:
+            tb_writer.add_scalar('train/reg_loss', oscreg.avg, epoch)
+            tb_writer.add_scalar('train/regloss_s', annealing_schedule_reg, epoch)
+        tb_writer.add_scalar('train/lr', _get_learning_rate(optimizer), epoch)
 
 
-def validate(val_loader, model, criterion, args):
+def validate(val_loader, model, criterion, args, epoch, tb_writer):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
@@ -556,7 +459,7 @@ def validate(val_loader, model, criterion, args):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            if i % args.print_freq == 0:
+            if args.rank == 0 and i % args.print_freq == 0:
                 progress.display(i)
 
         # TODO: this should also be done with the ProgressMeter
@@ -564,6 +467,9 @@ def validate(val_loader, model, criterion, args):
               .format(top1=top1, top5=top5))
         if args.rank == 0:
             logging.info(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'.format(top1=top1, top5=top5))
+            tb_writer.add_scalar('val/loss', losses.avg, epoch)
+            tb_writer.add_scalar('val/acc1', top1.avg, epoch)
+            tb_writer.add_scalar('val/acc5', top5.avg, epoch)
 
     return top1.avg
 
@@ -648,7 +554,7 @@ def accuracy(output, target, topk=(1,)):
 
 
 if __name__ == '__main__':
-    args = parser.parse_args()
+    args = get_args_parser()
     print(args)
     
     # 设置 CUDA 可见设备
