@@ -97,6 +97,8 @@ class Mlp(nn.Module):
         self.fc2 = BinaryLinear(hidden_features, out_features) if wbits == 1 else QuantLinear(hidden_features, out_features, nbits=wbits, learned=learned, mixpre=mixpre)
         self.drop = nn.Dropout(drop)
 
+        self.fc1_f = nn.Linear(in_features, hidden_features)
+
     def forward(self, x):
         x = self.quant1(x)
         x = self.fc1(x)

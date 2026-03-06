@@ -12,7 +12,6 @@ from quantization.lsq_layer import QuantAct, QuantConv2d, QuantLinear, QuantMult
 
 @torch.no_grad()
 def initialize_quantization(data_loader, model, device, output_dir, sample_iters=5, logger=None):
-
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Initialization:'
     if utils.is_main_process():
@@ -28,14 +27,15 @@ def initialize_quantization(data_loader, model, device, output_dir, sample_iters
             model.eval()
             f.write("activation scales:\n")
             n = 0
-            for images, target in metric_logger.log_every(data_loader, 1, header):
+            
+            for images, target in metric_logger.log_every(data_loader, len(data_loader)//2, header):
                 n += 1
-                if n > sample_iters:
-                    break
                 images = images.to(device, non_blocking=True)
                 # compute output
                 # with torch.cuda.amp.autocast():
                 output = model(images)
+                # if n > sample_iters:
+                #     break
             '''
             for name, m in model.named_modules():
                 if (isinstance(m, QuantAct) or isinstance(m, QuantMultiHeadAct)) and m.alpha is not None:
@@ -45,6 +45,22 @@ def initialize_quantization(data_loader, model, device, output_dir, sample_iters
                     if m.offset:
                         f.write("offset" + ': ' + str(m.beta.data) + '\n')
             '''
+    else:
+        for name, m in model.named_modules():
+            if (isinstance(m, QuantLinear) or isinstance(m, QuantConv2d) or isinstance(m, QuantMuitiHeadLinear) or isinstance(m, QuantMuitiHeadLinear_in)) and m.alpha is not None:
+                m.initialize_scale(device)
+
+        # switch to evaluation mode
+        model.eval()
+        n = 0
+        for images, target in metric_logger.log_every(data_loader, 1, header):
+            n += 1
+            images = images.to(device, non_blocking=True)
+            # compute output
+            # with torch.cuda.amp.autocast():
+            output = model(images)
+            # if n > sample_iters:
+            #     break
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     return

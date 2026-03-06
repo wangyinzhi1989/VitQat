@@ -221,18 +221,16 @@ def main_worker(gpu, ngpus_per_node, args):
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        train_sampler_single_crop = torch.utils.data.distributed.DistributedSampler(train_dataset_single_crop)
     else:
         train_sampler = None
-        train_sampler_single_crop = None
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
     train_loader_single_crop = torch.utils.data.DataLoader(
-        train_dataset_single_crop, batch_size=args.batch_size*args.num_crops, shuffle=(train_sampler_single_crop is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler_single_crop)
+        train_dataset_single_crop, batch_size=args.batch_size*args.num_crops, shuffle=(train_sampler is None),
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
     dataset_val = datasets.ImageFolder(valdir, transforms.Compose([
             transforms.Resize(256),
@@ -246,11 +244,8 @@ def main_worker(gpu, ngpus_per_node, args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
-    # 初始化用，只需少量数据测试即可
-    dataset_test = torch.utils.data.Subset(dataset_val, indices=list(range(min(256, len(dataset_val)))))
-
     data_loader_sampler = torch.utils.data.DataLoader(
-        dataset_val, sampler=torch.utils.data.SequentialSampler(dataset_test),
+        dataset_val, sampler=torch.utils.data.SequentialSampler(dataset_val),
         batch_size=64,
         num_workers=args.workers,
         pin_memory=True,

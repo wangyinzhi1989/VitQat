@@ -92,41 +92,40 @@ class ImageFolder_FKD(torchvision.datasets.ImageFolder):
         super(ImageFolder_FKD, self).__init__(**kwargs)
 
     def __getitem__(self, index):
+        path, target = self.samples[index]
+        tar_sub_path = path.split('/')[-3:]
+        tar_sub_name = tar_sub_path[-1].split('.')[0].split('_')
+        tar_sub_name = '_'.join(tar_sub_name[:-1]) + '.tar'
+        tar_sub_path[-1] = tar_sub_name
+        #print(f'path: {path} target: {target} softlabel_path: {self.softlabel_path} tar_name: {tar_sub_name} tar_sub_path: {tar_sub_path}')
 
-            path, target = self.samples[index]
-            tar_sub_path = path.split('/')[-3:]
-            tar_sub_name = tar_sub_path[-1].split('.')[0].split('_')
-            tar_sub_name = '_'.join(tar_sub_name[:-1]) + '.tar'
-            tar_sub_path[-1] = tar_sub_name
-            #print(f'path: {path} target: {target} softlabel_path: {self.softlabel_path} tar_name: {tar_sub_name} tar_sub_path: {tar_sub_path}')
+        label_path = os.path.join(self.softlabel_path, '/'.join(tar_sub_path))
+        #print(f'label_path: {label_path}')
 
-            label_path = os.path.join(self.softlabel_path, '/'.join(tar_sub_path))
-            #print(f'label_path: {label_path}')
+        label = torch.load(label_path, map_location=torch.device('cpu'), weights_only=False, pickle_module=pickle)
 
-            label = torch.load(label_path, map_location=torch.device('cpu'), weights_only=False, pickle_module=pickle)
+        coords, flip_status, output = label
 
-            coords, flip_status, output = label
+        rand_index = torch.randperm(len(output))#.cuda()
+        output_new = []
 
-            rand_index = torch.randperm(len(output))#.cuda()
-            output_new = []
+        sample = self.loader(path)
+        sample_all = [] 
+        target_all = []
 
-            sample = self.loader(path)
-            sample_all = [] 
-            target_all = []
+        for i in range(self.num_crops):
+            if self.transform is not None:
+                output_new.append(output[rand_index[i]])
+                sample_new = self.transform(sample, coords[rand_index[i]], flip_status[rand_index[i]])
+                sample_all.append(sample_new)
+                target_all.append(target)
+            else:
+                coords = None
+                flip_status = None
+            if self.target_transform is not None:
+                target = self.target_transform(target)
 
-            for i in range(self.num_crops):
-                if self.transform is not None:
-                    output_new.append(output[rand_index[i]])
-                    sample_new = self.transform(sample, coords[rand_index[i]], flip_status[rand_index[i]])
-                    sample_all.append(sample_new)
-                    target_all.append(target)
-                else:
-                    coords = None
-                    flip_status = None
-                if self.target_transform is not None:
-                    target = self.target_transform(target)
-
-            return sample_all, target_all, output_new
+        return sample_all, target_all, output_new
 
 
 def Recover_soft_label(label, label_type, n_classes):
