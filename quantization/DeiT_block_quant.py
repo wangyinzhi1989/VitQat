@@ -97,16 +97,26 @@ class Mlp(nn.Module):
         self.fc2 = BinaryLinear(hidden_features, out_features) if wbits == 1 else QuantLinear(hidden_features, out_features, nbits=wbits, learned=learned, mixpre=mixpre)
         self.drop = nn.Dropout(drop)
 
-        self.fc1_f = nn.Linear(in_features, hidden_features)
+        self.fc1_f = nn.Linear(in_features, hidden_features, bias=True)
+        self.act_f = act_layer(inplace=True) if isinstance(act_layer, nn.ReLU) else act_layer()
+        self.fc2_f = nn.Linear(hidden_features, out_features, bias=True)
+        self.quant_flg = False
 
     def forward(self, x):
-        x = self.quant1(x)
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop(x)
-        x = self.quant2(x)
-        x = self.fc2(x)
-        x = self.drop(x)
+        if self.quant_flg:
+            x = self.quant1(x)
+            x = self.fc1(x)
+            x = self.act(x)
+            x = self.drop(x)
+            x = self.quant2(x)
+            x = self.fc2(x)
+            x = self.drop(x)
+        else:
+            x = self.fc1_f(x)
+            x = self.act_f(x)
+            x = self.drop(x)
+            x = self.fc2_f(x)
+            x = self.drop(x)
         # print(self.quant2.alpha[:4], self.quant2.beta)
         return x 
 
