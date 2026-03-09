@@ -155,24 +155,28 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x):
-        B, N, C = x.shape
-        x = self.quant_input(x)
-        # qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        # q.shape : B H N D
-        q = self.proj_q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-        k = self.proj_k(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-        v = self.proj_v(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
-        # q, k, v = qkv[0], qkv[1], qkv[2]
-        q, k, v = self.quant_q(q), self.quant_k(k), self.quant_v(v)
+        if self.quant_flg:
+            B, N, C = x.shape
+            x = self.quant_input(x)
+            # qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+            # q.shape : B H N D
+            q = self.proj_q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+            k = self.proj_k(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+            v = self.proj_v(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+            # q, k, v = qkv[0], qkv[1], qkv[2]
+            q, k, v = self.quant_q(q), self.quant_k(k), self.quant_v(v)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-        attn = self.quant_attn(attn)
+            attn = (q @ k.transpose(-2, -1)) * self.scale
+            attn = attn.softmax(dim=-1)
+            attn = self.attn_drop(attn)
+            attn = self.quant_attn(attn)
 
-        x = self.quant_output(attn @ v).transpose(1, 2).reshape(B, N, C)
-        x = self.proj(x)
-        x = self.proj_drop(x)
+            x = self.quant_output(attn @ v).transpose(1, 2).reshape(B, N, C)
+            x = self.proj(x)
+            x = self.proj_drop(x)
+        else:
+            # 请参考MLP 的实现，写出非量化分支
+            pass
         return x 
 
 
@@ -284,6 +288,7 @@ class QuantVisionTransformer(nn.Module):
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
 
+        self.hybrid_backbone = hybrid_backbone
         if hybrid_backbone is not None:
             self.patch_embed = HybridEmbed(
                 hybrid_backbone, img_size=img_size, in_chans=in_chans, embed_dim=embed_dim)
@@ -374,7 +379,7 @@ def _conv_filter(state_dict, patch_size=16):
     return out_dict
 
 @register_model
-def deit_tiny_patch16_224_quant(pretrained=False, pretrained_cfg=None, pretrained_cfg_overlay=None, cache_dir=None, **kwargs):
+def deit_tiny_patch16_224_block_quant(pretrained=False, pretrained_cfg=None, pretrained_cfg_overlay=None, cache_dir=None, **kwargs):
     model = QuantVisionTransformer(
         patch_size=16, embed_dim=192, depth=12, num_heads=3, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
@@ -388,7 +393,7 @@ def deit_tiny_patch16_224_quant(pretrained=False, pretrained_cfg=None, pretraine
     return model
 
 @register_model
-def deit_small_patch16_224_quant(pretrained=False, **kwargs):
+def deit_small_patch16_224_block_quant(pretrained=False, **kwargs):
     model = QuantVisionTransformer(
         patch_size=16, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
@@ -402,7 +407,7 @@ def deit_small_patch16_224_quant(pretrained=False, **kwargs):
     return model
 
 @register_model
-def deit_base_patch16_224_quant(pretrained=False, **kwargs):
+def deit_base_patch16_224_block_quant(pretrained=False, **kwargs):
     model = QuantVisionTransformer(
         patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
